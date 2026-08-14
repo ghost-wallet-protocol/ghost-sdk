@@ -5,8 +5,13 @@ on:
     types: [created]
 
 jobs:
-  publish:
+  test-and-publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - uses: actions/checkout@v3
@@ -19,15 +24,43 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run type check
+        run: npm run type-check || exit 1
+
+      - name: Run linter
+        run: npm run lint || exit 1
 
       - name: Run tests
-        run: npm test
+        run: npm test -- --passWithNoTests || exit 1
 
       - name: Build package
-        run: npm run build
+        run: npm run build || exit 1
+
+      - name: Verify dist directory
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ dist directory not found after build"
+            exit 1
+          fi
+          if [ ! -f "dist/index.js" ]; then
+            echo "❌ dist/index.js not found"
+            exit 1
+          fi
+          if [ ! -f "dist/index.d.ts" ]; then
+            echo "❌ dist/index.d.ts not found"
+            exit 1
+          fi
+          echo "✅ Build artifacts verified"
 
       - name: Publish to npm
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        continue-on-error: false
+
+      - name: Verify npm package
+        run: |
+          npm view ghost-sdk@$(npm pkg get version | tr -d '"') || exit 1
+          echo "✅ Package successfully published to npm"
